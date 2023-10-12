@@ -42,6 +42,7 @@ from pyannote.pipeline.parameter import (
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist, pdist
+from sklearn.neighbors import KNeighborsClassifier
 
 from pyannote.audio import Inference
 from pyannote.audio.core.io import AudioFile
@@ -63,13 +64,33 @@ class BaseClustering(Pipeline):
         metric: str = "cosine",
         max_num_embeddings: int = 1000,
         constrained_assignment: bool = False,
+        knn: Union[KNeighborsClassifier, bool] = False,
     ):
 
         super().__init__()
         self.metric = metric
         self.max_num_embeddings = max_num_embeddings
         self.constrained_assignment = constrained_assignment
+        if isinstance(knn, KNeighborsClassifier):
+            self.knn_classifier = knn
+        else:
+            self.knn_classifier = None
+            self.train_knn = knn
 
+    def load_knn(
+        self,
+        knn_classifier: KNeighborsClassifier,
+    ) -> None:
+        """
+        Load KNN classifier
+
+        Parameters
+        ----------
+        knn_classifier : KNeighborsClassifier
+            KNN classifier trained on previously clustered embeddings.
+        """
+        self.clustering.knn_classifier = knn_classifier
+    
     def set_num_clusters(
         self,
         num_embeddings: int,
@@ -268,12 +289,22 @@ class BaseClustering(Pipeline):
             soft_clusters = np.ones((num_chunks, num_speakers, 1))
             return hard_clusters, soft_clusters
 
-        train_clusters = self.cluster(
-            train_embeddings,
-            min_clusters,
-            max_clusters,
-            num_clusters=num_clusters,
-        )
+        if self.knn_classifier is not None:
+            train_clusters = self.knn_classifier.predict(train_embeddings)
+        else:
+            train_clusters = self.cluster(
+                train_embeddings,
+                min_clusters,
+                max_clusters,
+                num_clusters=num_clusters,
+            )
+
+        if self.train_knn is True:
+            self.knn_classifier = KNeighborsClassifier(
+                n_neighbors=1, n_jobs=-1
+                )
+            self.knn_classifier.fit(train_embeddings, train_clusters)
+            self.train_knn = False
 
         hard_clusters, soft_clusters = self.assign_embeddings(
             embeddings,
@@ -300,6 +331,7 @@ class FINCHClustering(BaseClustering):
         metric: str = "cosine",
         max_num_embeddings: int = np.inf,
         constrained_assignment: bool = False,
+        knn: Union[KNeighborsClassifier, bool] = False,
     ):
 
         if not FINCH_IS_AVAILABLE:
@@ -312,6 +344,7 @@ class FINCHClustering(BaseClustering):
             metric=metric,
             max_num_embeddings=max_num_embeddings,
             constrained_assignment=constrained_assignment,
+            knn = knn,
         )
 
         self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
@@ -421,12 +454,14 @@ class AgglomerativeClustering(BaseClustering):
         metric: str = "cosine",
         max_num_embeddings: int = np.inf,
         constrained_assignment: bool = False,
+        knn: Union[KNeighborsClassifier, bool] = False,
     ):
 
         super().__init__(
             metric=metric,
             max_num_embeddings=max_num_embeddings,
             constrained_assignment=constrained_assignment,
+            knn = knn,
         )
 
         self.threshold = Uniform(0.0, 2.0)  # assume unit-normalized embeddings
@@ -657,6 +692,7 @@ class HiddenMarkovModelClustering(BaseClustering):
         self,
         metric: str = "cosine",
         constrained_assignment: bool = False,
+        knn: Union[KNeighborsClassifier, bool] = False,
     ):
 
         if metric not in ["euclidean", "cosine"]:
@@ -665,6 +701,7 @@ class HiddenMarkovModelClustering(BaseClustering):
         super().__init__(
             metric=metric,
             constrained_assignment=constrained_assignment,
+            knn = knn,
         )
 
         self.single_cluster_detection = ParamDict(

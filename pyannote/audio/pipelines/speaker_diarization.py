@@ -30,6 +30,7 @@ from typing import Callable, Optional, Text, Union
 import numpy as np
 import torch
 from einops import rearrange
+from sklearn.neighbors import KNeighborsClassifier
 from pyannote.core import Annotation, SlidingWindow, SlidingWindowFeature
 from pyannote.metrics.diarization import GreedyDiarizationErrorRate
 from pyannote.pipeline.parameter import ParamDict, Uniform
@@ -113,6 +114,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         embedding: PipelineModel = "speechbrain/spkrec-ecapa-voxceleb@5c0be3875fda05e81f3c004ed8c7c06be308de1e",
         embedding_exclude_overlap: bool = False,
         clustering: str = "HiddenMarkovModelClustering",
+        knn: Union[KNeighborsClassifier, bool] = False,
         embedding_batch_size: int = 32,
         segmentation_batch_size: int = 32,
         der_variant: dict = None,
@@ -168,8 +170,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             raise ValueError(
                 f'clustering must be one of [{", ".join(list(Clustering.__members__))}]'
             )
-        self.clustering = Klustering.value(metric=metric)
-
+        self.clustering = Klustering.value(metric=metric, knn=knn)
+    
     def default_parameters(self):
 
         if (
